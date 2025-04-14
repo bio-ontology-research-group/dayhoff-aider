@@ -13,6 +13,7 @@ from grep_ast.tsl import get_parser  # noqa: E402
 
 from aider.dump import dump  # noqa: F401
 from aider.run_cmd import run_cmd_subprocess  # noqa: F401
+from aider.workflow import WorkflowLanguage, get_workflow_language, validate_workflow
 
 # tree_sitter is throwing a FutureWarning
 warnings.simplefilter("ignore", category=FutureWarning)
@@ -25,6 +26,11 @@ class Linter:
 
         self.languages = dict(
             python=self.py_lint,
+            cwl=self.cwl_lint,
+            nextflow=self.nextflow_lint,
+            wdl=self.wdl_lint,
+            snakemake=self.snakemake_lint,
+            shell=self.shell_lint,
         )
         self.all_lint_cmd = None
 
@@ -132,6 +138,65 @@ class Linter:
 
         if text or lines:
             return LintResult(text, lines)
+            
+    def cwl_lint(self, fname, rel_fname, code):
+        """Lint Common Workflow Language files"""
+        is_valid, error_msg = validate_workflow(fname, WorkflowLanguage.CWL)
+        if not is_valid:
+            return LintResult(text=f"CWL validation errors:\n{error_msg}", lines=[0])
+        return None
+        
+    def nextflow_lint(self, fname, rel_fname, code):
+        """Lint Nextflow files"""
+        is_valid, error_msg = validate_workflow(fname, WorkflowLanguage.NEXTFLOW)
+        if not is_valid:
+            # Parse line numbers from Nextflow error messages
+            line_nums = []
+            for line in error_msg.split('\n'):
+                match = re.search(r'line (\d+)', line)
+                if match:
+                    line_nums.append(int(match.group(1)) - 1)
+            return LintResult(text=f"Nextflow validation errors:\n{error_msg}", lines=line_nums or [0])
+        return None
+        
+    def wdl_lint(self, fname, rel_fname, code):
+        """Lint Workflow Description Language files"""
+        is_valid, error_msg = validate_workflow(fname, WorkflowLanguage.WDL)
+        if not is_valid:
+            # Parse line numbers from WDL error messages
+            line_nums = []
+            for line in error_msg.split('\n'):
+                match = re.search(r'line (\d+)', line)
+                if match:
+                    line_nums.append(int(match.group(1)) - 1)
+            return LintResult(text=f"WDL validation errors:\n{error_msg}", lines=line_nums or [0])
+        return None
+        
+    def snakemake_lint(self, fname, rel_fname, code):
+        """Lint Snakemake files"""
+        is_valid, error_msg = validate_workflow(fname, WorkflowLanguage.SNAKEMAKE)
+        if not is_valid:
+            # Parse line numbers from Snakemake error messages
+            line_nums = []
+            for line in error_msg.split('\n'):
+                match = re.search(r'line (\d+)', line)
+                if match:
+                    line_nums.append(int(match.group(1)) - 1)
+            return LintResult(text=f"Snakemake validation errors:\n{error_msg}", lines=line_nums or [0])
+        return None
+        
+    def shell_lint(self, fname, rel_fname, code):
+        """Lint Shell scripts"""
+        is_valid, error_msg = validate_workflow(fname, WorkflowLanguage.SHELL)
+        if not is_valid:
+            # Parse line numbers from shellcheck error messages
+            line_nums = []
+            for line in error_msg.split('\n'):
+                match = re.search(r'line (\d+)', line)
+                if match:
+                    line_nums.append(int(match.group(1)) - 1)
+            return LintResult(text=f"Shell script validation errors:\n{error_msg}", lines=line_nums or [0])
+        return None
 
     def flake8_lint(self, rel_fname):
         fatal = "E9,F821,F823,F831,F406,F407,F701,F702,F704,F706"
@@ -201,14 +266,20 @@ def lint_python_compile(fname, code):
 def basic_lint(fname, code):
     """
     Use tree-sitter to look for syntax errors, display them with tree context.
+    For workflow languages, use their specific validators.
     """
+    # Check if this is a workflow file
+    workflow_lang = get_workflow_language(fname)
+    if workflow_lang:
+        # For workflow files, we'll use the specific linters
+        return None
 
     lang = filename_to_lang(fname)
     if not lang:
         return
 
-    # Tree-sitter linter is not capable of working with typescript #1132
-    if lang == "typescript":
+    # Only support Python and Shell for tree-sitter parsing
+    if lang not in ["python", "bash"]:
         return
 
     try:

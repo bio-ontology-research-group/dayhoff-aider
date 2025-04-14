@@ -7,6 +7,8 @@ from io import BytesIO
 import pexpect
 import psutil
 
+from aider.workflow import run_workflow, get_workflow_language, WorkflowBackend
+
 
 def run_cmd(command, verbose=False, error_print=None, cwd=None):
     try:
@@ -85,6 +87,30 @@ def run_cmd_subprocess(command, verbose=False, cwd=None, encoding=sys.stdout.enc
     except Exception as e:
         return 1, str(e)
 
+
+def run_workflow_cmd(filename, backend_name, params=None, verbose=False, cwd=None, encoding=sys.stdout.encoding):
+    """
+    Run a workflow file using the specified backend.
+    
+    :param filename: Path to the workflow file
+    :param backend_name: Name of the backend to use
+    :param params: Dictionary of parameters to pass to the workflow
+    :param verbose: If True, print verbose output
+    :param cwd: Working directory
+    :param encoding: File encoding
+    :return: A tuple containing (exit_status, output)
+    """
+    if verbose:
+        print(f"Running workflow {filename} with backend {backend_name}")
+    
+    try:
+        # Convert backend_name string to WorkflowBackend enum
+        backend = WorkflowBackend(backend_name)
+        return run_workflow(filename, backend, params, cwd, encoding)
+    except ValueError as e:
+        return 1, str(e)
+    except Exception as e:
+        return 1, f"Error running workflow: {str(e)}"
 
 def run_cmd_pexpect(command, verbose=False, cwd=None):
     """
