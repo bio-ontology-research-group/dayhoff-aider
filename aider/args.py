@@ -668,6 +668,34 @@ def get_parser(default_config_files, git_root):
         help="Specify the input device name for voice recording",
     )
 
+    ##########
+    group = parser.add_argument_group("Workflow settings")
+    group.add_argument(
+        "--workflow-backend",
+        choices=[
+            "cwltool", "toil",  # CWL backends
+            "nextflow-local", "nextflow-docker",  # Nextflow backends
+            "cromwell", "miniwdl",  # WDL backends
+            "snakemake-local", "snakemake-cluster",  # Snakemake backends
+            "python-direct", "shell-direct"  # Direct execution
+        ],
+        default="cwltool",
+        help="Specify the backend to use for running workflows (default: cwltool)",
+    )
+    group.add_argument(
+        "--workflow-docker",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Docker for workflow execution (default: True)",
+    )
+    group.add_argument(
+        "--workflow-params",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Specify parameters for workflow execution (can be used multiple times)",
+        default=[],
+    )
+    
     ######
     group = parser.add_argument_group("Other settings")
     group.add_argument(
