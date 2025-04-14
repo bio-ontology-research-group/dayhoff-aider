@@ -2,6 +2,9 @@ cwlVersion: v1.0
 class: Workflow
 label: Simple BWA Alignment Workflow
 
+$namespaces:
+  edam: http://edamontology.org/
+
 inputs:
   reference_genome:
     type: File
