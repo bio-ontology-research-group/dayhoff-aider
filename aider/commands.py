@@ -7,6 +7,7 @@ import tempfile
 from collections import OrderedDict
 from os.path import expanduser
 from pathlib import Path
+import shlex # Added for safe command construction
 
 import pyperclip
 from PIL import Image, ImageGrab
@@ -20,7 +21,7 @@ from aider.help import Help, install_help_extra
 from aider.io import CommandCompletionException
 from aider.llm import litellm
 from aider.repo import ANY_GIT_ERROR
-from aider.run_cmd import run_cmd
+from aider.run_cmd import run_cmd, run_cmd_subprocess # Added run_cmd_subprocess
 from aider.scrape import Scraper, install_playwright
 from aider.utils import is_image_file
 
@@ -983,42 +984,119 @@ class Commands:
         self.io.tool_output(combined_output)
 
     def cmd_test(self, args):
-        "Run a shell command and add the output to the chat on non-zero exit code"
-        if not args and self.coder.test_cmd:
-            args = self.coder.test_cmd
-
+        """Run a predefined test or execute the provided command as a test."""
         if not args:
+            self.io.tool_error("Provide a command to run, or a predefined test name (e.g., bio-align-workflow).")
             return
 
-        if not callable(args):
-            if type(args) is not str:
-                raise ValueError(repr(args))
-            return self.cmd_run(args, True)
+        test_name = args.strip()
 
-        errors = args()
-        if not errors:
-            return
+        # Predefined tests
+        if test_name == "bio-align-workflow":
+            if not self.coder.root:
+                 self.io.tool_error("Cannot determine project root to locate workflow file.")
+                 return
 
-        self.io.tool_output(errors)
-        return errors
+            # Define paths relative to the project root
+            workflow_rel_path = os.path.join("examples", "bioinformatics", "alignment", "workflow.cwl")
+            workflow_abs_path = os.path.join(self.coder.root, workflow_rel_path)
+
+            # Check if workflow file exists
+            if not os.path.exists(workflow_abs_path):
+                 self.io.tool_error(f"Workflow file not found: {workflow_rel_path}")
+                 # Provide more context if possible
+                 self.io.tool_output(f"Looked in: {workflow_abs_path}")
+                 return
+
+            # --- Stage 1: Validate the workflow ---
+            # Use shlex.quote for safety, especially if paths might have spaces
+            validate_cmd = f"cwltool --validate {shlex.quote(workflow_rel_path)}"
+            self.io.tool_output(f"Validating workflow: {workflow_rel_path}")
+            self.io.tool_output(f"Running command: {validate_cmd}")
+
+            returncode, output = self.run_cmd_subprocess_helper(validate_cmd)
+            self.io.tool_output(output) # Display validation output
+
+            if returncode != 0:
+                 self.io.tool_error(f"Workflow validation failed (return code {returncode}).")
+                 # Return the error output for potential fixing
+                 return prompts.run_output.format(command=validate_cmd, output=output)
+            else:
+                 self.io.tool_output("Workflow validation successful.")
+                 # Future: Add execution step here if needed
+                 # For now, validation is the test.
+                 return None # Indicate success
+
+            # return # End of predefined test - Removed, return value handled above
+
+        # Fallback: Execute provided command as a test
+        else:
+            self.io.tool_output(f"Running user-provided test command: {args}")
+            exit_status, combined_output = self.run_cmd_subprocess_helper(args)
+
+            if combined_output is None: # Should not happen with helper, but check
+                return None
+
+            self.io.tool_output(combined_output) # Display command output
+
+            if exit_status != 0:
+                self.io.tool_error(f"Test command failed with return code {exit_status}.")
+                # Return the formatted output message for test failures
+                return prompts.run_output.format(command=args, output=combined_output)
+            else:
+                self.io.tool_output("Test command successful.")
+                return None # Indicate success
+
+    def run_cmd_subprocess_helper(self, command):
+        """Helper to run a command using run_cmd_subprocess."""
+        try:
+            # Determine encoding (use io's encoding if available, else fallback)
+            encoding = getattr(self.io, 'encoding', None) or sys.stdout.encoding or 'utf-8'
+            # Ensure cwd is the project root
+            cwd = self.coder.root or os.getcwd()
+
+            return run_cmd_subprocess(
+                command,
+                cwd=cwd,
+                encoding=encoding,
+                errors="replace" # Handle potential decoding errors
+            )
+        except FileNotFoundError as e:
+            # Handle case where the command itself isn't found
+            cmd_base = command.split()[0]
+            error_msg = f"Error: Command '{cmd_base}' not found. Is it installed and in your PATH?"
+            self.io.tool_error(error_msg) # Use io.tool_error
+            return 1, error_msg # Return error code and message
+        except Exception as e:
+            error_msg = f"Error executing command '{command}': {e}"
+            self.io.tool_error(error_msg) # Use io.tool_error
+            return 1, error_msg # Return error code and message
+
 
     def cmd_run(self, args, add_on_nonzero_exit=False):
         "Run a shell command and optionally add the output to the chat (alias: !)"
-        exit_status, combined_output = run_cmd(
-            args, verbose=self.verbose, error_print=self.io.tool_error, cwd=self.coder.root
-        )
+        exit_status, combined_output = self.run_cmd_subprocess_helper(args)
 
         if combined_output is None:
-            return
+            return None # Error already printed by helper
 
         # Calculate token count of output
         token_count = self.coder.main_model.token_count(combined_output)
         k_tokens = token_count / 1000
 
+        # Display output regardless of exit status, unless io suppresses it
+        self.io.tool_output(combined_output)
+
         if add_on_nonzero_exit:
             add = exit_status != 0
         else:
-            add = self.io.confirm_ask(f"Add {k_tokens:.1f}k tokens of command output to the chat?")
+            # Ask only if there's substantial output and command succeeded or user didn't specify add_on_nonzero
+            if exit_status == 0 and k_tokens > 0.1: # Don't ask for tiny outputs
+                 add = self.io.confirm_ask(f"Add {k_tokens:.1f}k tokens of command output to the chat?")
+            elif exit_status != 0: # Always ask for failed commands if not add_on_nonzero
+                 add = self.io.confirm_ask(f"Command failed. Add {k_tokens:.1f}k tokens of output to the chat?")
+            else:
+                 add = False # Don't add small successful outputs unless asked
 
         if add:
             num_lines = len(combined_output.strip().splitlines())
@@ -1035,14 +1113,13 @@ class Commands:
                 dict(role="assistant", content="Ok."),
             ]
 
-            if add_on_nonzero_exit and exit_status != 0:
-                # Return the formatted output message for test failures
+            if exit_status != 0: # Return the formatted output message for failures if added
                 return msg
-            elif add and exit_status != 0:
-                self.io.placeholder = "What's wrong? Fix"
+            # else: successful command output added, return None
 
-        # Return None if output wasn't added or command succeeded
+        # Return None if output wasn't added or command succeeded and wasn't added
         return None
+
 
     def cmd_exit(self, args):
         "Exit the application"
@@ -1079,17 +1156,17 @@ class Commands:
 
         if other_files:
             self.io.tool_output("Repo files not in the chat:\n")
-        for file in other_files:
+        for file in sorted(other_files):
             self.io.tool_output(f"  {file}")
 
         if read_only_files:
             self.io.tool_output("\nRead-only files:\n")
-        for file in read_only_files:
+        for file in sorted(read_only_files):
             self.io.tool_output(f"  {file}")
 
         if chat_files:
             self.io.tool_output("\nFiles in chat:\n")
-        for file in chat_files:
+        for file in sorted(chat_files):
             self.io.tool_output(f"  {file}")
 
     def basic_help(self):
