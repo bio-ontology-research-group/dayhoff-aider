@@ -1059,7 +1059,7 @@ class Commands:
                 command,
                 cwd=cwd,
                 encoding=encoding,
-                errors="replace" # Handle potential decoding errors
+                # errors="replace" # Removed this problematic argument
             )
         except FileNotFoundError as e:
             # Handle case where the command itself isn't found
