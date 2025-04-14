@@ -111,6 +111,8 @@ class Coder:
     ignore_mentions = None
     chat_language = None
     file_watcher = None
+    workflow_executor = None
+    workflow_language = None # Added attribute
 
     @classmethod
     def create(
@@ -169,6 +171,8 @@ class Coder:
                 total_cost=from_coder.total_cost,
                 ignore_mentions=from_coder.ignore_mentions,
                 file_watcher=from_coder.file_watcher,
+                workflow_executor=from_coder.workflow_executor,
+                workflow_language=from_coder.workflow_language, # Added
             )
             use_kwargs.update(update)  # override to complete the switch
             use_kwargs.update(kwargs)  # override passed kwargs
@@ -190,7 +194,9 @@ class Coder:
         raise UnknownEditFormat(edit_format, valid_formats)
 
     def clone(self, **kwargs):
-        new_coder = Coder.create(from_coder=self, **kwargs)
+        new_kwargs = dict(self.original_kwargs) # Start with original kwargs
+        new_kwargs.update(kwargs) # Update with any new kwargs
+        new_coder = Coder.create(from_coder=self, **new_kwargs)
         return new_coder
 
     def get_announcements(self):
@@ -267,6 +273,12 @@ class Coder:
         else:
             lines.append("Repo-map: disabled")
 
+        # Workflow Settings
+        if self.workflow_language: # Added
+            lines.append(f"Workflow language: {self.workflow_language}") # Added
+        if self.workflow_executor:
+            lines.append(f"Workflow executor: {self.workflow_executor}")
+
         # Files
         for fname in self.get_inchat_relative_files():
             lines.append(f"Added {fname} to the chat.")
@@ -323,6 +335,8 @@ class Coder:
         file_watcher=None,
         auto_copy_context=False,
         auto_accept_architect=True,
+        workflow_executor=None,
+        workflow_language=None, # Added argument
     ):
         # Fill in a dummy Analytics if needed, but it is never .enable()'d
         self.analytics = analytics if analytics is not None else Analytics()
@@ -408,7 +422,7 @@ class Coder:
         self.show_diffs = show_diffs
 
         self.commands = commands or Commands(self.io, self)
-        self.commands.coder = self
+        self.commands.coder = self # Ensure commands has a reference back to coder
 
         self.repo = repo
         if use_git and self.repo is None:
@@ -507,6 +521,10 @@ class Coder:
         self.lint_cmds = lint_cmds
         self.auto_test = auto_test
         self.test_cmd = test_cmd
+
+        # Workflow settings
+        self.workflow_executor = workflow_executor
+        self.workflow_language = workflow_language # Added
 
         # validate the functions jsonschema
         if self.functions:

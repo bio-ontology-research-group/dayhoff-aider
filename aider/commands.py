@@ -26,6 +26,18 @@ from aider.utils import is_image_file
 
 from .dump import dump  # noqa: F401
 
+# Define the valid workflow executors based on args.py
+VALID_WORKFLOW_EXECUTORS = [
+    "cwltool", "toil",
+    "nextflow-local", "nextflow-docker",
+    "cromwell", "miniwdl",
+    "snakemake-local", "snakemake-cluster",
+    "python-direct", "shell-direct"
+]
+
+# Define valid workflow languages based on args.py
+VALID_WORKFLOW_LANGUAGES = ["cwl", "nextflow", "wdl", "snakemake", "python", "shell"]
+
 
 class SwitchCoder(Exception):
     def __init__(self, placeholder=None, **kwargs):
@@ -36,17 +48,22 @@ class SwitchCoder(Exception):
 class Commands:
     voice = None
     scraper = None
+    workflow_executor = None
+    workflow_language = None # Added
 
     def clone(self):
         return Commands(
             self.io,
-            None,
+            None, # Coder reference will be set later
             voice_language=self.voice_language,
             verify_ssl=self.verify_ssl,
             args=self.args,
             parser=self.parser,
             verbose=self.verbose,
             editor=self.editor,
+            workflow_executor=self.workflow_executor,
+            workflow_language=self.workflow_language, # Added
+            original_read_only_fnames=self.original_read_only_fnames,
         )
 
     def __init__(
@@ -61,10 +78,12 @@ class Commands:
         parser=None,
         verbose=False,
         editor=None,
+        workflow_executor=None,
+        workflow_language=None, # Added
         original_read_only_fnames=None,
     ):
         self.io = io
-        self.coder = coder
+        self.coder = coder # Can be None initially, set later
         self.parser = parser
         self.args = args
         self.verbose = verbose
@@ -79,6 +98,8 @@ class Commands:
 
         self.help = None
         self.editor = editor
+        self.workflow_executor = workflow_executor
+        self.workflow_language = workflow_language # Added
 
         # Store the original read-only filenames provided via args.read
         self.original_read_only_fnames = set(original_read_only_fnames or [])
@@ -1601,6 +1622,60 @@ Just show me the edits I need to make.
             )
         except Exception as e:
             self.io.tool_error(f"An unexpected error occurred while copying to clipboard: {str(e)}")
+
+    def completions_workflow_executor(self):
+        return VALID_WORKFLOW_EXECUTORS
+
+    def cmd_workflow_executor(self, args):
+        "Switch the workflow executor backend (e.g., cwltool, nextflow, cromwell)"
+        executor_name = args.strip()
+
+        if not executor_name:
+            current_executor = self.coder.workflow_executor if self.coder else self.workflow_executor
+            self.io.tool_output(f"Current workflow executor: {current_executor}")
+            self.io.tool_output("Available executors:")
+            for executor in VALID_WORKFLOW_EXECUTORS:
+                self.io.tool_output(f"- {executor}")
+            return
+
+        if executor_name not in VALID_WORKFLOW_EXECUTORS:
+            self.io.tool_error(f"Invalid workflow executor: {executor_name}")
+            self.io.tool_output("Available executors:")
+            for executor in VALID_WORKFLOW_EXECUTORS:
+                self.io.tool_output(f"- {executor}")
+            return
+
+        if self.coder:
+            self.coder.workflow_executor = executor_name
+        self.workflow_executor = executor_name # Update Commands instance as well
+        self.io.tool_output(f"Switched workflow executor to: {executor_name}")
+
+    def completions_workflow_language(self): # Added
+        return VALID_WORKFLOW_LANGUAGES # Added
+
+    def cmd_workflow_language(self, args): # Added
+        "Switch the primary workflow language (e.g., cwl, nextflow, wdl)" # Added
+        language_name = args.strip() # Added
+
+        if not language_name: # Added
+            current_language = self.coder.workflow_language if self.coder else self.workflow_language # Added
+            self.io.tool_output(f"Current workflow language: {current_language}") # Added
+            self.io.tool_output("Available languages:") # Added
+            for lang in VALID_WORKFLOW_LANGUAGES: # Added
+                self.io.tool_output(f"- {lang}") # Added
+            return # Added
+
+        if language_name not in VALID_WORKFLOW_LANGUAGES: # Added
+            self.io.tool_error(f"Invalid workflow language: {language_name}") # Added
+            self.io.tool_output("Available languages:") # Added
+            for lang in VALID_WORKFLOW_LANGUAGES: # Added
+                self.io.tool_output(f"- {lang}") # Added
+            return # Added
+
+        if self.coder: # Added
+            self.coder.workflow_language = language_name # Added
+        self.workflow_language = language_name # Update Commands instance as well # Added
+        self.io.tool_output(f"Switched workflow language to: {language_name}") # Added
 
 
 def expand_subdir(file_path):
