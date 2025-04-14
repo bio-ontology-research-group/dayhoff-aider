@@ -1,0 +1,7 @@
+reference_genome:
+  class: File
+  path: reference.fasta
+reads_fastq:
+  class: File
+  path: reads.fastq
+output_bam_filename: aligned_reads.bam
