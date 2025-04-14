@@ -671,7 +671,13 @@ def get_parser(default_config_files, git_root):
     ##########
     group = parser.add_argument_group("Workflow settings")
     group.add_argument(
-        "--workflow-backend",
+        "--workflow-language", # Added argument
+        choices=["cwl", "nextflow", "wdl", "snakemake", "python", "shell"],
+        default="cwl",
+        help="Specify the primary language for workflows (default: cwl)",
+    )
+    group.add_argument(
+        "--workflow-executor", # Renamed from --workflow-backend
         choices=[
             "cwltool", "toil",  # CWL backends
             "nextflow-local", "nextflow-docker",  # Nextflow backends
@@ -680,7 +686,7 @@ def get_parser(default_config_files, git_root):
             "python-direct", "shell-direct"  # Direct execution
         ],
         default="cwltool",
-        help="Specify the backend to use for running workflows (default: cwltool)",
+        help="Specify the executor tool to use for running workflows (default: cwltool)", # Updated help
     )
     group.add_argument(
         "--workflow-docker",
@@ -695,7 +701,7 @@ def get_parser(default_config_files, git_root):
         help="Specify parameters for workflow execution (can be used multiple times)",
         default=[],
     )
-    
+
     ######
     group = parser.add_argument_group("Other settings")
     group.add_argument(
